@@ -1,6 +1,5 @@
 import { MaterialReactTable, MRT_EditActionButtons, useMaterialReactTable } from 'material-react-table'
-import mockData from './assets/MOCK_DATA.json'
-import { useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import './App.css'
 import {
   Box,
@@ -12,82 +11,132 @@ import {
   Tooltip,
 } from '@mui/material';
 import { Edit, Delete } from '@mui/icons-material';
+import {
+  createSizeTemplate,
+  deleteSizeTemplate,
+  getOptions,
+  getSizeTemplates,
+  updateSizeTemplate,
+} from './api'
 
-
+const toPayload = (values) => ({
+  client_id: Number(values.client_id),
+  brand: values.brand,
+  gender: values.gender,
+  domain_id: values.domain_id,
+  chart_id: values.chart_id === '' || values.chart_id == null ? null : Number(values.chart_id),
+})
 
 function App() {
+  const [data, setData] = useState([])
+  const [genderOptions, setGenderOptions] = useState([])
+  const [domainOptions, setDomainOptions] = useState([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [isSaving, setIsSaving] = useState(false)
+  const [error, setError] = useState(null)
+
+  const loadData = useCallback(async () => {
+    try {
+      setData(await getSizeTemplates())
+      setError(null)
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setIsLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    loadData()
+    Promise.all([getOptions('gender'), getOptions('domain')])
+      .then(([genders, domains]) => {
+        setGenderOptions(genders)
+        setDomainOptions(domains)
+      })
+      .catch((e) => setError(e.message))
+  }, [loadData])
+
+  const save = async (request, exit) => {
+    setIsSaving(true)
+    try {
+      await request()
+      await loadData()
+      exit()
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
   const columns = useMemo(
     ()=>[
       {
-        header: 'empresa',
-        accessorKey: 'empresa',
+        header: 'id',
+        accessorKey: 'id',
+        enableEditing: false,
+        size: 80,
+      },
+      {
+        header: 'client_id',
+        accessorKey: 'client_id',
+        muiEditTextFieldProps: { type: 'number', required: true },
+      },
+      {
+        header: 'cliente',
+        accessorKey: 'client_fantasy_name',
+        enableEditing: false,
+      },
+      {
+        header: 'brand',
+        accessorKey: 'brand',
+        muiEditTextFieldProps: { required: true },
+      },
+      {
+        header: 'gender',
+        accessorKey: 'gender',
         editVariant: 'select',
-        editSelectOptions: [
-          'Jason Industries, Inc.',
-          'FORM Holdings Corp.',
-        ]
-      },
-      {
-        header: 'marca_meli',
-        accessorKey: 'marca_meli'
-      },
-      {
-        header: 'genero_meli',
-        accessorKey: 'genero_meli',
-        editVariant: 'select',
-        editSelectOptions: [
-          'Finance',
-          'Miscellaneous',
-          'Transportation',
-          'Public Utilities'
-        ]
-      },
-      {
-        header: 'nombre_guia',
-        accessorKey: 'nombre_guia'
+        editSelectOptions: genderOptions,
       },
       {
         header: 'domain_id',
         accessorKey: 'domain_id',
         editVariant: 'select',
-        editSelectOptions: [
-          '1',
-          '2',
-          '3',
-          '4',
-          '5',
-          '6',
-          '7',
-          '8',
-          '9',
-        ]
+        editSelectOptions: domainOptions,
       },
       {
         header: 'chart_id',
         accessorKey: 'chart_id',
-        enableEditing: false,
+        muiEditTextFieldProps: { type: 'number' },
       },
-      {
-        header: 'version',
-        accessorKey: 'version'
-      },
-    ],[],
+    ],[genderOptions, domainOptions],
   )
 
-  const handleCreateUser = ({values, table}) => {
+  const handleCreate = ({ values, table }) =>
+    save(() => createSizeTemplate(toPayload(values)), () => table.setCreatingRow(null))
 
+  const handleEdit = ({ row, values, table }) =>
+    save(() => updateSizeTemplate(row.original.id, toPayload(values)), () => table.setEditingRow(null))
+
+  const handleDelete = (row) => {
+    if (window.confirm(`¿Eliminar la guía ${row.original.id} (${row.original.brand})?`)) {
+      save(() => deleteSizeTemplate(row.original.id), () => {})
+    }
   }
 
   const table = useMaterialReactTable({
     columns,
-    data: mockData,
+    data,
     createDisplayMode: 'modal',
     editDisplayMode: 'modal',
-    onCreatingRowSave: handleCreateUser,
+    onCreatingRowSave: handleCreate,
+    onEditingRowSave: handleEdit,
     enableEditing: true,
+    state: { isLoading, isSaving, showAlertBanner: !!error },
+    muiToolbarAlertBannerProps: error ? { color: 'error', children: error } : undefined,
     renderCreateRowDialogContent: ({table, row, internalEditComponents}) => (
       <>
-        <DialogTitle variant="h5">Create New User</DialogTitle>
+        <DialogTitle variant="h5">Crear guía de talles</DialogTitle>
         <DialogContent
           sx={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}
         >
@@ -116,7 +165,7 @@ function App() {
           </IconButton>
         </Tooltip>
         <Tooltip title="Delete">
-          <IconButton color="error" onClick={() => openDeleteConfirmModal(row)}>
+          <IconButton color="error" onClick={() => handleDelete(row)}>
             <Delete />
           </IconButton>
         </Tooltip>
